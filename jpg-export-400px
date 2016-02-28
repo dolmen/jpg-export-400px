@@ -1,0 +1,80 @@
+#!/usr/bin/env perl
+
+
+# sudo aptitude install libimage-exiftool-perl libpath-tiny-perl
+
+use strict;
+use warnings;
+use Path::Tiny;
+use Image::ExifTool;
+
+# BEGIN { system("zenity --info --text 'XXXXX'") }
+
+shift @ARGV if $#ARGV > 0 && $ARGV[0] eq '--';
+
+use constant SIZE => 400;
+use constant EXPORT_DIR => "Export ".SIZE."px";
+use constant SCRIPT_NAME => "Export ".SIZE."px";
+
+my $ME = path($0)->basename;
+
+if (@ARGV && $ARGV[0] eq '--install') {
+    my $scripts_dir = path('~/.local/share/nautilus/scripts');
+    $scripts_dir->mkpath unless $scripts_dir->exists;
+    require FindBin;
+    my $nautilus_script = $scripts_dir->child(SCRIPT_NAME);
+    unlink $nautilus_script if $nautilus_script->exists;
+    printf "%s -> %s\n", path($FindBin::Bin, $FindBin::Script), $nautilus_script;
+    symlink path($FindBin::Bin, $FindBin::Script), $nautilus_script;
+    chmod 0755, $nautilus_script;
+    exit 0
+}
+
+
+my $FROM_NAUTILUS = exists $ENV{NAUTILUS_SCRIPT_SELECTED_FILE_PATHS};
+
+system("zenity --text 'XXXXX'");
+
+my $exifTool = Image::ExifTool->new;
+
+my @files;
+if ($ENV{NAUTILUS_SCRIPT_SELECTED_FILE_PATHS}) {
+    @files = split /\n/, $ENV{NAUTILUS_SCRIPT_SELECTED_FILE_PATHS};
+} else {
+    @files = @ARGV;
+}
+
+@files = map { path($_) } grep /\.jpe?g$/i, @files;
+
+
+eval {
+    for my $file (@files) {
+	next unless -f $file && -r $file;
+
+	my $export_dir = $file->parent->child(EXPORT_DIR);
+	$export_dir->mkpath unless $export_dir->is_dir;
+	my $export_file = $export_dir->child($file->basename);
+
+	my $info = $exifTool->ImageInfo($file->stringify);
+	my ($height, $width) = ($$info{ImageHeight}, $$info{ImageWidth});
+	my $portrait = $height > $width;
+
+	my $target_size = $portrait
+	    ? 'x'.SIZE
+	    : SIZE;
+
+	system
+	    "/usr/bin/convert",
+	    $file,
+	    "-resize" => $target_size,
+	    $export_file,
+	;
+	system "zenity", '--title', $ME, '--text', "Code: $?";
+    }
+};
+
+if ($@) {
+    if ($FROM_NAUTILUS) {
+	system "zenity", '--info', '--title', $ME, '--text', "Erreur: $@";
+    }
+}
